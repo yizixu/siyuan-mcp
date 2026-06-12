@@ -133,9 +133,22 @@ export interface AVData {
   views: AVView[];
 }
 
+/**
+ * A cell as returned by /api/av/renderAttributeView. The actual cell value is
+ * nested under `value` (NOT spread onto the cell itself), with the column type
+ * mirrored on `valueType`.
+ */
+export interface AVRenderCell {
+  id: string;
+  value: AVCellValue;
+  valueType: AVFieldType;
+  color?: string;
+  bgColor?: string;
+}
+
 export interface AVRenderRow {
   id: string;
-  cells: AVCellValue[];
+  cells: AVRenderCell[];
 }
 
 export interface AVRenderResult {

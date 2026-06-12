@@ -26,7 +26,7 @@
 
 import { getClient } from '../client';
 import { ok, err, generateId, getTimestamp, getOptionColor } from '../utils';
-import type { ToolModule, AVFieldType, AVViewType, AVKeyOption, AVKey } from '../types';
+import type { ToolModule, AVFieldType, AVViewType, AVKeyOption, AVKey, AVCellValue } from '../types';
 
 // --- Value helpers ---
 
@@ -683,17 +683,12 @@ const mod: ToolModule = {
           const filterKey = keyMap.get(filter.field.toLowerCase());
           if (filterKey) {
             rows = rows.filter((row) => {
-              const cell = row.cells.find((c) => c.keyID === filterKey.id);
+              const cell = row.cells.find((c) => c.value?.keyID === filterKey.id);
               if (!cell) return false;
-              const cellVal =
-                cell.text?.content ??
-                cell.number?.content ??
-                cell.select?.content ??
-                cell.url?.content ??
-                cell.email?.content ??
-                cell.phone?.content ??
-                cell.checkbox?.checked ??
-                null;
+              const cellVal = extractCellValue(cell.value);
+              if (Array.isArray(cellVal)) {
+                return cellVal.map(String).includes(String(filter.value));
+              }
               return String(cellVal) === String(filter.value);
             });
           }
@@ -716,9 +711,11 @@ const mod: ToolModule = {
             id: row.id,
             cells: row.cells.reduce(
               (acc, cell) => {
-                const key = av.keyValues.find((kv) => kv.key.id === cell.keyID);
+                const value = cell.value;
+                if (!value) return acc;
+                const key = av.keyValues.find((kv) => kv.key.id === value.keyID);
                 if (!key) return acc;
-                acc[key.key.name] = extractCellValue(cell);
+                acc[key.key.name] = extractCellValue(value);
                 return acc;
               },
               {} as Record<string, unknown>
@@ -962,28 +959,13 @@ export default mod;
 
 // --- Internal: extract a human-readable value from a cell ---
 
-function extractCellValue(cell: {
-  type: string;
-  text?: { content: string };
-  number?: { content: number; isNotEmpty: boolean };
-  date?: { content: number; isNotEmpty: boolean };
-  checkbox?: { checked: boolean };
-  select?: { content: string };
-  mSelect?: Array<{ content: string }>;
-  url?: { content: string };
-  email?: { content: string };
-  phone?: { content: string };
-  mAsset?: Array<{ type: string; name: string; content: string }>;
-  relation?: { contents: Array<{ id: string; content?: string }> };
-  block?: { id: string; content: string };
-  created?: { content: number };
-  updated?: { content: number };
-}): unknown {
+function extractCellValue(cell: AVCellValue): unknown {
   switch (cell.type) {
     case 'text': return cell.text?.content ?? '';
     case 'number': return cell.number?.isNotEmpty ? cell.number.content : null;
     case 'checkbox': return cell.checkbox?.checked ?? false;
-    case 'select': return cell.select?.content ?? '';
+    // SiYuan stores single-select values under `mSelect` too, so fall back to it.
+    case 'select': return cell.mSelect?.[0]?.content ?? cell.select?.content ?? '';
     case 'mSelect': return (cell.mSelect ?? []).map((s) => s.content);
     case 'date': return cell.date?.isNotEmpty ? new Date(cell.date.content).toISOString() : null;
     case 'url': return cell.url?.content ?? '';

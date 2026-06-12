@@ -1,12 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import FormData from 'form-data';
-import type {
-  SiYuanResponse,
-  Notebook,
-  AVData,
-  AVRenderResult,
-  AVKeyOption,
-} from './types';
+import type { SiYuanResponse, Notebook, AVData, AVRenderResult, AVKeyOption } from './types';
 
 // ─── Singleton ────────────────────────────────────────────────────────────────
 
@@ -14,20 +8,11 @@ let _client: SiYuanClient | null = null;
 
 export function getClient(): SiYuanClient {
   if (!_client) {
-    const token =
-      process.env.SIYUAN_API_TOKEN ||
-      process.env.SIYUAN_TOKEN ||
-      '';
+    const token = process.env.SIYUAN_API_TOKEN || process.env.SIYUAN_TOKEN || '';
     if (!token) {
-      throw new Error(
-        'SIYUAN_API_TOKEN environment variable is required. ' +
-          'Set it to your SiYuan API token (Settings > About > API token).'
-      );
+      throw new Error('SIYUAN_API_TOKEN environment variable is required. ' + 'Set it to your SiYuan API token (Settings > About > API token).');
     }
-    const baseUrl =
-      process.env.SIYUAN_API_URL ||
-      process.env.SIYUAN_BASE_URL ||
-      'http://127.0.0.1:6806';
+    const baseUrl = process.env.SIYUAN_API_URL || process.env.SIYUAN_BASE_URL || 'http://127.0.0.1:6806';
     _client = new SiYuanClient(baseUrl, token);
   }
   return _client;
@@ -43,9 +28,9 @@ export class SiYuanClient {
       baseURL: baseUrl.replace(/\/$/, ''),
       headers: {
         Authorization: `Token ${token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json'
       },
-      timeout: 30_000,
+      timeout: 30_000
     });
   }
 
@@ -100,11 +85,7 @@ export class SiYuanClient {
 
   // ─── Blocks ─────────────────────────────────────────────────────────────────
 
-  insertBlock(
-    dataType: string,
-    data: string,
-    opts: { parentID?: string; previousID?: string; nextID?: string }
-  ): Promise<unknown> {
+  insertBlock(dataType: string, data: string, opts: { parentID?: string; previousID?: string; nextID?: string }): Promise<unknown> {
     return this.post('/api/block/insertBlock', { dataType, data, ...opts });
   }
 
@@ -159,16 +140,14 @@ export class SiYuanClient {
   // ─── Attribute View (Database) ──────────────────────────────────────────────
 
   /** Render a database view – returns paginated rows through the view lens */
-  renderAV(
-    id: string,
-    opts: { viewID?: string; pageSize?: number; page?: number } = {}
-  ): Promise<AVRenderResult> {
+  renderAV(id: string, opts: { viewID?: string; pageSize?: number; page?: number } = {}): Promise<AVRenderResult> {
     return this.post('/api/av/renderAttributeView', { id, ...opts });
   }
 
   /** Get raw AV object (all keys, all views, no row data) */
-  getAV(id: string): Promise<AVData> {
-    return this.post('/api/av/getAttributeView', { id });
+  async getAV(id: string): Promise<AVData> {
+    const result = await this.post<{ av: AVData }>('/api/av/getAttributeView', { id });
+    return result.av;
   }
 
   /** Add new detached rows to a database, optionally pre-filling values */
@@ -181,7 +160,7 @@ export class SiYuanClient {
   ): Promise<unknown> {
     return this.post('/api/av/appendAttributeViewDetachedBlocksWithValues', {
       avID,
-      blocksValues,
+      blocksValues
     });
   }
 
@@ -191,27 +170,17 @@ export class SiYuanClient {
   }
 
   /** Update a single cell value */
-  updateAVCell(
-    avID: string,
-    keyID: string,
-    rowID: string,
-    value: Record<string, unknown>
-  ): Promise<unknown> {
+  updateAVCell(avID: string, keyID: string, rowID: string, value: Record<string, unknown>): Promise<unknown> {
     return this.post('/api/av/updateAttributeViewCell', { avID, keyID, rowID, value });
   }
 
   /** Add a new field (column) */
-  addAVColumn(
-    avID: string,
-    keyType: string,
-    keyName: string,
-    previousKeyID?: string
-  ): Promise<unknown> {
+  addAVColumn(avID: string, keyType: string, keyName: string, previousKeyID?: string): Promise<unknown> {
     return this.post('/api/av/addAttributeViewColumn', {
       avID,
       keyType,
       keyName,
-      ...(previousKeyID ? { previousKeyID } : {}),
+      ...(previousKeyID ? { previousKeyID } : {})
     });
   }
 
@@ -237,25 +206,18 @@ export class SiYuanClient {
   }
 
   /** Get options list for a select/mSelect field */
-  getAVKeyOptions(
-    avID: string,
-    keyID: string
-  ): Promise<{ options: AVKeyOption[] }> {
+  getAVKeyOptions(avID: string, keyID: string): Promise<{ options: AVKeyOption[] }> {
     return this.post('/api/av/getAttributeViewKeyOptions', { id: avID, keyID });
   }
 
   /** Set/replace options for a select/mSelect field */
-  setAVKeyOptions(
-    avID: string,
-    keyID: string,
-    options: AVKeyOption[]
-  ): Promise<unknown> {
+  setAVKeyOptions(avID: string, keyID: string, options: AVKeyOption[]): Promise<unknown> {
     // SiYuan stores options as part of the key definition.
     // updateAttributeViewColumn with keyOptions replaces the option list.
     return this.post('/api/av/updateAttributeViewColumn', {
       avID,
       keyID,
-      keyOptions: options,
+      keyOptions: options
     });
   }
 
@@ -264,7 +226,7 @@ export class SiYuanClient {
     return this.post('/api/av/addAttributeViewView', {
       avID,
       ...(viewType ? { viewType } : {}),
-      ...(viewName ? { viewName } : {}),
+      ...(viewName ? { viewName } : {})
     });
   }
 
@@ -274,20 +236,12 @@ export class SiYuanClient {
   }
 
   /** Update a view (rename, change layout, set filters/sorts) */
-  updateAVView(
-    avID: string,
-    viewID: string,
-    opts: { name?: string; type?: string }
-  ): Promise<unknown> {
+  updateAVView(avID: string, viewID: string, opts: { name?: string; type?: string }): Promise<unknown> {
     return this.post('/api/av/updateAttributeViewView', { avID, viewID, ...opts });
   }
 
   /** Set filters and/or sorts on a view */
-  setAVViewQuery(
-    avID: string,
-    viewID: string,
-    query: { sorts?: unknown[]; filters?: unknown[] }
-  ): Promise<unknown> {
+  setAVViewQuery(avID: string, viewID: string, query: { sorts?: unknown[]; filters?: unknown[] }): Promise<unknown> {
     return this.post('/api/av/setAttributeViewViewQuery', { avID, viewID, ...query });
   }
 
@@ -296,7 +250,7 @@ export class SiYuanClient {
     return this.post('/api/av/addAttributeViewBlocks', {
       avID,
       blockIDs,
-      ...(previousID ? { previousID } : {}),
+      ...(previousID ? { previousID } : {})
     });
   }
 
@@ -312,7 +266,7 @@ export class SiYuanClient {
     form.append('file', buf, { filename: 'file' });
 
     const res = await this.http.post<SiYuanResponse<null>>('/api/file/putFile', form, {
-      headers: form.getHeaders(),
+      headers: form.getHeaders()
     });
     if (res.data.code !== 0) {
       throw new Error(`SiYuan putFile error [${res.data.code}]: ${res.data.msg}`);
@@ -321,29 +275,19 @@ export class SiYuanClient {
 
   /** Read a file from the SiYuan workspace */
   async getFile(workspacePath: string): Promise<string> {
-    const res = await this.http.post<string>(
-      '/api/file/getFile',
-      { path: workspacePath },
-      { responseType: 'text' }
-    );
+    const res = await this.http.post<string>('/api/file/getFile', { path: workspacePath }, { responseType: 'text' });
     return res.data;
   }
 
   // ─── Assets ─────────────────────────────────────────────────────────────────
 
   /** Upload a binary asset; returns the SiYuan asset path */
-  async uploadAsset(
-    fileName: string,
-    fileContent: Buffer,
-    assetsDirPath = '/assets/'
-  ): Promise<{ errFiles: string[]; succMap: Record<string, string> }> {
+  async uploadAsset(fileName: string, fileContent: Buffer, assetsDirPath = '/assets/'): Promise<{ errFiles: string[]; succMap: Record<string, string> }> {
     const form = new FormData();
     form.append('assetsDirPath', assetsDirPath);
     form.append('file[]', fileContent, { filename: fileName });
 
-    const res = await this.http.post<
-      SiYuanResponse<{ errFiles: string[]; succMap: Record<string, string> }>
-    >('/api/asset/upload', form, { headers: form.getHeaders() });
+    const res = await this.http.post<SiYuanResponse<{ errFiles: string[]; succMap: Record<string, string> }>>('/api/asset/upload', form, { headers: form.getHeaders() });
 
     if (res.data.code !== 0) {
       throw new Error(`SiYuan upload error [${res.data.code}]: ${res.data.msg}`);

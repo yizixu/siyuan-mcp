@@ -1,0 +1,40 @@
+{
+  "name": "siyuan-mcp",
+  "version": "1.0.0",
+  "description": "A comprehensive MCP server for SiYuan Note with full Attribute View (database) support",
+  "main": "dist/index.js",
+  "bin": {
+    "siyuan-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "siyuan",
+    "knowledge-management",
+    "database",
+    "attribute-view"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -118,7 +118,7 @@ export interface AVCellValue {
   email?: { content: string };
   phone?: { content: string };
   mAsset?: Array<{ type: string; name: string; content: string }>;
-  relation?: { contents: Array<{ id: string; content?: string }> };
+  relation?: { blockIDs?: string[]; contents?: Array<{ id: string; content?: string }> };
   rollup?: { contents: unknown[] };
   created?: { content: number; isNotEmpty: boolean };
   updated?: { content: number; isNotEmpty: boolean };

@@ -80,6 +80,33 @@ const mod: ToolModule = {
         required: ['id'],
       },
     },
+    {
+      name: 'export_doc_markdown',
+      description:
+        'Export a document as standard Markdown (resolves block refs, embeds and assets). ' +
+        'Use this to READ a full document\'s content as clean Markdown. Returns { hPath, content }.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Document block ID' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'resolve_doc_path',
+      description:
+        'Convert between a document ID and its human-readable path. ' +
+        'Provide id to get its hpath, OR provide hpath + notebookId to get matching document IDs.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Document block ID (to look up its hpath)' },
+          hpath: { type: 'string', description: 'Human path like "/Projects/My Doc" (to look up IDs)' },
+          notebookId: { type: 'string', description: 'Notebook ID (required with hpath)' },
+        },
+      },
+    },
   ],
 
   async handle(name, args) {
@@ -143,6 +170,31 @@ const mod: ToolModule = {
 
         await client.removeDocByID(id);
         return ok({ success: true, id });
+      }
+
+      // ── export_doc_markdown ─────────────────────────────────────────────────
+      if (name === 'export_doc_markdown') {
+        const { id } = args as { id: string };
+        const result = await client.exportMdContent(id);
+        return ok(result);
+      }
+
+      // ── resolve_doc_path ────────────────────────────────────────────────────
+      if (name === 'resolve_doc_path') {
+        const { id, hpath, notebookId } = args as {
+          id?: string;
+          hpath?: string;
+          notebookId?: string;
+        };
+        if (id) {
+          const resolvedHpath = await client.getHPathByID(id);
+          return ok({ id, hpath: resolvedHpath });
+        }
+        if (hpath && notebookId) {
+          const ids = await client.getIDsByHPath(hpath, notebookId);
+          return ok({ hpath, notebookId, ids });
+        }
+        return err('Provide either id, or both hpath and notebookId');
       }
 
       return err(`Unknown document tool: ${name}`);

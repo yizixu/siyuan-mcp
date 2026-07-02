@@ -3,9 +3,11 @@ import documents from './documents';
 import blocks from './blocks';
 import database from './database';
 import system from './system';
+import search from './search';
+import files from './files';
 import type { ToolDef, MCPToolResult, ToolModule } from '../types';
 
-const modules: ToolModule[] = [notebooks, documents, blocks, database, system];
+const modules: ToolModule[] = [search, notebooks, documents, blocks, database, files, system];
 
 /** Flat list of all tool definitions (for ListTools response) */
 export function getAllTools(): ToolDef[] {

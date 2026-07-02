@@ -33,14 +33,10 @@ import type { ToolModule, AVFieldType, AVViewType, AVKeyOption, AVKey, AVCellVal
 /**
  * Build the SiYuan AV cell value object from a plain JS value.
  */
-function buildCellValue(
-  keyID: string,
-  type: AVFieldType,
-  value: unknown
-): Record<string, unknown> {
-  const base: Record<string, unknown> = { keyID, type };
+function buildCellValue(key: AVKey, value: unknown): Record<string, unknown> {
+  const base: Record<string, unknown> = { keyID: key.id, type: key.type };
 
-  switch (type) {
+  switch (key.type) {
     case 'text':
       return { ...base, text: { content: String(value ?? '') } };
     case 'number':
@@ -50,20 +46,36 @@ function buildCellValue(
       };
     case 'checkbox':
       return { ...base, checkbox: { checked: Boolean(value) } };
+    // SiYuan stores both single- and multi-select under `mSelect`. Reuse the
+    // field's existing option colors so we don't create duplicate options.
     case 'select':
-      return { ...base, select: { content: String(value ?? '') } };
     case 'mSelect': {
       const items = Array.isArray(value) ? value : [value];
-      return { ...base, mSelect: items.map((v) => ({ content: String(v) })) };
+      const opts = key.options ?? [];
+      const mSelect = items
+        .filter((v) => v !== null && v !== undefined && String(v) !== '')
+        .map((v) => {
+          const content = String(v);
+          const opt = opts.find((o) => o.name === content);
+          return { content, color: opt?.color ?? '' };
+        });
+      return { ...base, mSelect };
     }
     case 'date': {
+      const hasValue = value !== null && value !== undefined && value !== '';
       const ms =
-        typeof value === 'number'
-          ? value
-          : value
-          ? new Date(String(value)).getTime()
-          : Date.now();
-      return { ...base, date: { content: ms, isNotEmpty: true } };
+        typeof value === 'number' ? value : hasValue ? new Date(String(value)).getTime() : 0;
+      return {
+        ...base,
+        date: {
+          content: ms,
+          isNotEmpty: hasValue,
+          hasEndDate: false,
+          isNotTime: false,
+          content2: 0,
+          isNotEmpty2: false,
+        },
+      };
     }
     case 'url':
       return { ...base, url: { content: String(value ?? '') } };
@@ -82,11 +94,12 @@ function buildCellValue(
       };
     }
     case 'relation': {
-      const ids = Array.isArray(value) ? value : [value];
-      return {
-        ...base,
-        relation: { contents: ids.map((id) => ({ id: String(id) })) },
-      };
+      // When WRITING a relation cell the kernel expects `blockIDs` (the linked
+      // row/block IDs); `contents` is only present on the read side.
+      const ids = (Array.isArray(value) ? value : [value])
+        .filter((v) => v !== null && v !== undefined && String(v) !== '')
+        .map(String);
+      return { ...base, relation: { blockIDs: ids, contents: [] } };
     }
     default:
       return { ...base, ...(typeof value === 'object' && value !== null ? value : {}) };
@@ -98,58 +111,82 @@ function buildCellValue(
 function buildAVJson(
   avID: string,
   name: string,
-  fields: Array<{ name: string; type: string; options?: string[] }>
+  fields: Array<{ name: string; type: string; options?: string[] }>,
+  primaryFieldName = 'Name'
 ): object {
   const blockKeyID = generateId();
   const viewID = generateId();
+  const tableID = generateId();
 
+  // Full key object as expected by SiYuan >= 3.x (spec 4).
+  const makeKey = (id: string, keyName: string, type: string, options?: AVKeyOption[]) => ({
+    id,
+    name: keyName,
+    type,
+    icon: '',
+    desc: '',
+    ...(options ? { options } : {}),
+    numberFormat: '',
+    template: '',
+  });
+
+  const keyIDs: string[] = [blockKeyID];
   const keyValues: object[] = [
-    {
-      key: { id: blockKeyID, name: 'Name', type: 'block', icon: '' },
-      values: [],
-    },
+    { key: makeKey(blockKeyID, primaryFieldName, 'block'), values: [] },
   ];
   const columns: object[] = [
-    { id: blockKeyID, width: '', hidden: false, pin: true, wrap: false, calc: null },
+    { id: blockKeyID, wrap: false, hidden: false, pin: false, width: '' },
   ];
 
-  fields.forEach((field, idx) => {
+  fields.forEach((field) => {
     const keyID = generateId();
-    const key: AVKey & { options?: AVKeyOption[] } = {
-      id: keyID,
-      name: field.name,
-      type: field.type as AVFieldType,
-      icon: '',
-    };
-
+    let options: AVKeyOption[] | undefined;
     if (field.type === 'select' || field.type === 'mSelect') {
-      key.options = (field.options || []).map((optName, i) => ({
+      // SiYuan stores option colors as palette-index strings ("1".."14").
+      options = (field.options || []).map((optName, i) => ({
         name: optName,
-        color: getOptionColor(idx * 10 + i),
-      }));
+        color: String((i % 14) + 1),
+        desc: '',
+      })) as AVKeyOption[];
     }
 
-    keyValues.push({ key, values: [] });
-    columns.push({ id: keyID, width: '', hidden: false, pin: false, wrap: false, calc: null });
+    keyIDs.push(keyID);
+    keyValues.push({ key: makeKey(keyID, field.name, field.type, options), values: [] });
+    columns.push({ id: keyID, wrap: false, hidden: false, pin: false, width: '' });
   });
 
   return {
+    spec: 4,
     id: avID,
     name,
     keyValues,
+    keyIDs,
+    viewID,
     views: [
       {
         id: viewID,
-        name: 'Default',
-        type: 'table',
         icon: '',
-        columns,
-        sorts: [],
-        filters: [],
+        name: 'Default',
+        hideAttrViewName: false,
+        desc: '',
         pageSize: 50,
-        group: [],
-        groupCalcs: null,
-        blockCount: 0,
+        type: 'table',
+        table: {
+          spec: 0,
+          id: tableID,
+          showIcon: true,
+          wrapField: false,
+          columns,
+          rowIds: [],
+        },
+        itemIds: [],
+        group: { field: '', method: 0, order: 0, hideEmpty: false },
+        groupCreated: 0,
+        groups: null,
+        groupItemIds: null,
+        groupFolded: false,
+        groupHidden: 0,
+        groupSort: 0,
       },
     ],
   };
@@ -172,6 +209,12 @@ const mod: ToolModule = {
           name: {
             type: 'string',
             description: 'Database name',
+          },
+          primaryFieldName: {
+            type: 'string',
+            description:
+              'Name of the primary/title (block) column that holds each row\'s title (default: "Name"). ' +
+              'When adding rows with write_db_rows, map the title value to THIS field name.',
           },
           parentDocId: {
             type: 'string',
@@ -441,11 +484,6 @@ const mod: ToolModule = {
             type: 'string',
             description: 'New view name',
           },
-          type: {
-            type: 'string',
-            enum: ['table', 'kanban', 'gallery', 'calendar', 'list'],
-            description: 'Change view layout type',
-          },
           sorts: {
             type: 'array',
             description: 'Sort rules: [{ column: "keyId", order: "ASC"|"DESC" }]',
@@ -619,14 +657,15 @@ const mod: ToolModule = {
     try {
       // -- create_database --
       if (name === 'create_database') {
-        const { name: dbName, parentDocId, fields = [] } = args as {
+        const { name: dbName, parentDocId, fields = [], primaryFieldName } = args as {
           name: string;
           parentDocId?: string;
           fields?: Array<{ name: string; type: string; options?: string[] }>;
+          primaryFieldName?: string;
         };
 
         const avID = generateId();
-        const avJson = buildAVJson(avID, dbName, fields);
+        const avJson = buildAVJson(avID, dbName, fields, primaryFieldName);
 
         await client.putFile(
           `/data/storage/av/${avID}.json`,
@@ -659,22 +698,25 @@ const mod: ToolModule = {
           filter?: { field: string; value: unknown };
         };
 
+        const av = await client.getAV(avId);
+
+        // Resolve which view to render. A caller who just wants "everything"
+        // should NOT accidentally get a filtered view (e.g. a "待办"/Todo view
+        // that hides completed rows). So when no viewId is given we prefer, in
+        // order: a view literally named "Default", then any view with NO
+        // filters (shows all rows), then the first view.
+        const hasNoFilters = (v: { filters?: unknown[] }) => !v.filters || v.filters.length === 0;
         let resolvedViewId = viewId;
         if (!resolvedViewId) {
-          try {
-            const av = await client.getAV(avId);
-            const defaultView = av.views.find(
-              (v) => v.name.toLowerCase() === 'default'
-            );
-            resolvedViewId = defaultView?.id ?? av.views[0]?.id;
-          } catch {
-            // fall through
-          }
+          const named = av.views.find((v) => v.name.toLowerCase() === 'default');
+          const unfiltered = av.views.find((v) => hasNoFilters(v) && v.type === 'table')
+            ?? av.views.find(hasNoFilters);
+          resolvedViewId = named?.id ?? unfiltered?.id ?? av.views[0]?.id;
         }
 
+        const chosenView = av.views.find((v) => v.id === resolvedViewId);
         const result = await client.renderAV(avId, { viewID: resolvedViewId, pageSize, page });
 
-        const av = await client.getAV(avId);
         const keyMap = new Map(av.keyValues.map((kv) => [kv.key.name.toLowerCase(), kv.key]));
 
         let rows = result.view?.rows ?? [];
@@ -694,11 +736,25 @@ const mod: ToolModule = {
           }
         }
 
+        const viewIsFiltered = chosenView ? !hasNoFilters(chosenView) : false;
+
         return ok({
           avId,
           name: result.name,
           viewId: resolvedViewId,
+          viewName: chosenView?.name,
           viewType: result.viewType,
+          // Warn the caller when they're looking at a filtered subset, and tell
+          // them which other views exist so they can switch (e.g. see all rows).
+          ...(viewIsFiltered && !viewId
+            ? { note: `View "${chosenView?.name}" has filters and may hide rows; pass a viewId to switch.` }
+            : {}),
+          availableViews: av.views.map((v) => ({
+            id: v.id,
+            name: v.name,
+            type: v.type,
+            filtered: !hasNoFilters(v),
+          })),
           fields: av.keyValues.map((kv) => ({
             id: kv.key.id,
             name: kv.key.name,
@@ -737,25 +793,30 @@ const mod: ToolModule = {
         );
 
         const blocksValues = rows.map((row) => {
-          const blockID = generateId();
           const values: Array<Record<string, unknown>> = [];
+          let content = '';
 
           for (const [fieldName, value] of Object.entries(row)) {
             const key = keyMap.get(fieldName.toLowerCase());
-            if (!key || key.type === 'block') continue;
-            values.push(buildCellValue(key.id, key.type, value));
+            if (!key) continue;
+            // The primary (block) field becomes the row's title/content.
+            if (key.type === 'block') {
+              content = String(value ?? '');
+              continue;
+            }
+            values.push(buildCellValue(key, value));
           }
 
-          return { blockID, values };
+          return { content, values };
         });
 
-        await client.appendAVRows(avId, blocksValues);
+        const { rowIDs } = await client.appendAVRows(avId, blocksValues);
 
         return ok({
           success: true,
           avId,
-          inserted: blocksValues.length,
-          blockIDs: blocksValues.map((bv) => bv.blockID),
+          inserted: rowIDs.length,
+          blockIDs: rowIDs,
         });
       }
 
@@ -785,7 +846,7 @@ const mod: ToolModule = {
 
           if (!key) continue;
 
-          const cellValue = buildCellValue(key.id, key.type, upd.value);
+          const cellValue = buildCellValue(key, upd.value);
           await client.updateAVCell(avId, key.id, upd.rowId, cellValue);
           updated++;
         }
@@ -815,8 +876,8 @@ const mod: ToolModule = {
           if (!fieldName || !fieldType) {
             return err('add action requires fieldName and fieldType');
           }
-          await client.addAVColumn(avId, fieldType, fieldName, previousKeyId);
-          return ok({ success: true, avId, action, fieldName, fieldType });
+          const newKeyId = await client.addAVColumn(avId, fieldType, fieldName, previousKeyId);
+          return ok({ success: true, avId, action, fieldName, fieldType, keyId: newKeyId });
         }
 
         if (action === 'remove') {
@@ -827,7 +888,11 @@ const mod: ToolModule = {
 
         if (action === 'rename') {
           if (!keyId || !fieldName) return err('rename action requires keyId and fieldName');
-          await client.updateAVColumn(avId, keyId, { keyName: fieldName });
+          // updateAttrViewCol needs the existing type, otherwise it would reset it.
+          const av = await client.getAV(avId);
+          const existing = av.keyValues.find((kv) => kv.key.id === keyId)?.key;
+          if (!existing) return err(`Field ${keyId} not found`);
+          await client.updateAVColumn(avId, keyId, { keyName: fieldName, keyType: existing.type });
           return ok({ success: true, avId, action, keyId, newName: fieldName });
         }
 
@@ -864,20 +929,16 @@ const mod: ToolModule = {
 
       // -- update_view --
       if (name === 'update_view') {
-        const { avId, viewId, name: viewName, type: viewType, sorts, filters } = args as {
+        const { avId, viewId, name: viewName, sorts, filters } = args as {
           avId: string;
           viewId: string;
           name?: string;
-          type?: AVViewType;
           sorts?: unknown[];
           filters?: unknown[];
         };
 
-        if (viewName || viewType) {
-          await client.updateAVView(avId, viewId, {
-            ...(viewName ? { name: viewName } : {}),
-            ...(viewType ? { type: viewType } : {}),
-          });
+        if (viewName) {
+          await client.updateAVView(avId, viewId, { name: viewName });
         }
 
         if (sorts !== undefined || filters !== undefined) {

@@ -4,11 +4,13 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 
 
 ## Features
 
+- **Unified full-text `search`** — one keyword call finds document titles, block content, **and database rows**, and hands back the `avId` to drill in (plain SQL can't see database rows)
 - **Full Attribute View (database) support** — create, read, write, update, delete databases and rows; manage fields, views, select options, and doc-backed rows
-- **Document & block management** — create, update, delete documents and blocks with full batch support
+- **Document & block management** — create, update, delete, export, fold/unfold, move, and batch-edit documents and blocks
+- **Full notebook lifecycle** — list, create, rename, open, close, remove, get/set config
+- **Workspace file access** — read/write/remove/rename files and list directories in the workspace
 - **SQL query** — direct access to SiYuan's SQLite via `siyuan_sql`
-- **Workspace map** — one-call overview of all notebooks, documents, and databases
-- **Asset upload** — upload base64-encoded files to the assets folder
+- **Utilities** — asset upload, Markdown export, Sprig rendering, Pandoc conversion, UI notifications, server-side HTTP proxy, workspace map
 - **Pure HTTP** — no local workspace path required; works with local and remote SiYuan instances
 
 ---
@@ -79,21 +81,46 @@ For remote SiYuan:
 
 ## Tool Reference
 
+### Search (start here to find things)
+
+| Tool | Description |
+|---|---|
+| `search` | Full-text keyword search across titles, block content, **and database rows**; groups by document and returns the `avId` of any database hit so you can `read_database` it |
+
 ### System / Utility
 
 | Tool | Description |
 |---|---|
-| `siyuan_sql` | Execute a read-only SQL query against SiYuan's SQLite |
+| `siyuan_sql` | Execute a read-only SQL query against SiYuan's SQLite (note: cannot see database/AV rows — use `search`/`read_database` for those) |
 | `workspace_map` | Get all notebook IDs, document tree (2 levels), and database IDs |
 | `upload_asset` | Upload a file (base64) to the workspace assets folder |
 | `get_system_info` | Get SiYuan version and boot progress |
+| `get_current_time` | Get the server's current time (epoch ms + ISO) |
+| `push_message` | Show a toast notification in the SiYuan UI (info or error) |
+| `render_sprig` | Render a Sprig template string (dates, sequences, etc.) |
+| `pandoc_convert` | Run a Pandoc conversion via SiYuan's bundled Pandoc |
+| `forward_proxy` | Make a server-side HTTP request through the kernel (avoids CORS) |
+
+### Files (raw workspace access)
+
+| Tool | Description |
+|---|---|
+| `read_file` | Read a raw workspace file by path |
+| `write_file` | Write/overwrite a raw workspace text file |
+| `remove_file` | Delete a workspace file or folder |
+| `rename_file` | Rename/move a workspace file |
+| `read_dir` | List entries of a workspace directory |
 
 ### Notebooks
 
 | Tool | Description |
 |---|---|
 | `list_notebooks` | List all notebooks with ID, name, status |
+| `create_notebook` | Create a new notebook |
 | `rename_notebook` | Rename a notebook by ID |
+| `manage_notebook` | Open, close, or remove (delete) a notebook |
+| `get_notebook_conf` | Get a notebook's configuration |
+| `set_notebook_conf` | Update a notebook's configuration |
 
 ### Documents
 
@@ -102,6 +129,8 @@ For remote SiYuan:
 | `create_document` | Create a document with optional Markdown content |
 | `update_document` | Rename, replace content, or move a document |
 | `delete_document` | Delete a document (with optional dryRun) |
+| `export_doc_markdown` | Export a document as clean standard Markdown (resolves refs/embeds) |
+| `resolve_doc_path` | Convert a document ID ↔ human-readable path |
 
 ### Blocks
 
@@ -110,10 +139,13 @@ For remote SiYuan:
 | `insert_block` | Insert a Markdown/DOM block (by parentID, previousID, or nextID) |
 | `update_block` | Update a block's content |
 | `delete_block` | Delete a block by ID |
+| `move_block` | Move a block to a new parent/position |
+| `fold_block` | Fold (collapse) or unfold (expand) a block |
 | `batch_block_ops` | Execute multiple insert/update/delete block operations in one call |
 | `set_block_attrs` | Set custom attributes on a block |
 | `get_block_attrs` | Get all attributes of a block |
 | `get_block_content` | Get raw Kramdown content of a block |
+| `get_child_blocks` | List the direct child blocks of a container block |
 
 ### Database (Attribute View) — 14 tools
 
@@ -158,6 +190,22 @@ Read-only / system types: `block`, `created`, `updated`, `lineNumber`, `template
 ---
 
 ## Quick Start Workflows
+
+### Find anything (search first!)
+
+```
+search(query: "todo")
+→ Returns matching blocks grouped by document.
+  If a match is inside a database, the result lists its avId in
+  `databasesFound`. Then:
+
+read_database(avId: "<avId from search>")
+→ Full structured rows of that to-do / task / table database.
+```
+
+> **Why not SQL?** `siyuan_sql` only sees the `blocks`/`attributes`/`spans`/`assets`
+> tables — it can find a database *block* but **not the rows inside it**. Always
+> use `search` (or `read_database`) to locate to-do items, tasks and table entries.
 
 ### Create a database with fields
 

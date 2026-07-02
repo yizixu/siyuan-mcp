@@ -165,6 +165,44 @@ const mod: ToolModule = {
         required: ['id'],
       },
     },
+    {
+      name: 'get_child_blocks',
+      description: 'List the direct child blocks of a container block (document, list, blockquote, etc.). Returns id, type, subtype.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Parent block ID' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'move_block',
+      description:
+        'Move a block to a new position. Provide previousID to place it right after another block, ' +
+        'and/or parentID to move it under a new parent.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Block ID to move' },
+          previousID: { type: 'string', description: 'Place after this block (optional)' },
+          parentID: { type: 'string', description: 'New parent block (optional)' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'fold_block',
+      description: 'Fold (collapse) or unfold (expand) a block by ID. Use fold=true to collapse, fold=false to expand.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Block ID' },
+          fold: { type: 'boolean', description: 'true = fold/collapse, false = unfold/expand (default: true)' },
+        },
+        required: ['id'],
+      },
+    },
   ],
 
   async handle(name, args) {
@@ -262,6 +300,31 @@ const mod: ToolModule = {
         const { id } = args as { id: string };
         const result = await client.getBlockKramdown(id);
         return ok(result);
+      }
+
+      // ── get_child_blocks ──────────────────────────────────────────────────────
+      if (name === 'get_child_blocks') {
+        const { id } = args as { id: string };
+        const children = await client.getChildBlocks(id);
+        return ok({ id, children });
+      }
+
+      // ── move_block ────────────────────────────────────────────────────────────
+      if (name === 'move_block') {
+        const { id, previousID, parentID } = args as {
+          id: string;
+          previousID?: string;
+          parentID?: string;
+        };
+        const result = await client.moveBlock(id, { previousID, parentID });
+        return ok({ success: true, id, result });
+      }
+
+      // ── fold_block ────────────────────────────────────────────────────────────
+      if (name === 'fold_block') {
+        const { id, fold = true } = args as { id: string; fold?: boolean };
+        const result = fold ? await client.foldBlock(id) : await client.unfoldBlock(id);
+        return ok({ success: true, id, folded: fold, result });
       }
 
       return err(`Unknown block tool: ${name}`);

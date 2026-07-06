@@ -1,25 +1,34 @@
 {
-  "name": "siyuan-mcp",
-  "version": "1.0.0",
-  "description": "A comprehensive MCP server for SiYuan Note with full Attribute View (database) support",
+  "name": "@yizixu/siyuan-mcp",
+  "version": "1.1.3",
+  "description": "A comprehensive MCP server for SiYuan Note with full Attribute View database support",
   "main": "dist/index.js",
   "bin": {
-    "siyuan-mcp": "./dist/index.js"
+    "siyuan-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
+    "check": "tsc --noEmit",
+    "test": "npm run check && npm run build",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test",
     "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "publish:npm": "npm publish"
   },
   "keywords": [
     "mcp",
     "model-context-protocol",
     "siyuan",
+    "siyuan-note",
     "knowledge-management",
     "database",
-    "attribute-view"
+    "attribute-view",
+    "typescript",
+    "cli"
   ],
   "license": "MIT",
   "engines": {
@@ -27,17 +36,39 @@
   },
   "files": [
     "dist/**/*",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    ".env.example"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "axios": "^1.7.0",
     "dotenv": "^16.4.0",
-    "form-data": "^4.0.0"
+    "form-data": "^4.0.6"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "prettier": "^3.8.4",
     "typescript": "^5.5.0"
+  },
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yizixu/siyuan-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yizixu/siyuan-mcp/issues"
+  },
+  "homepage": "https://github.com/yizixu/siyuan-mcp#readme",
+  "publishConfig": {
+    "access": "public"
   }
 }

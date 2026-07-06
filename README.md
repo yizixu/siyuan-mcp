@@ -22,10 +22,25 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 
 - [SiYuan Note](https://b3log.org/siyuan/) running (local or remote)
 - Node.js 18+
 
+### From npm
+
+Run directly with `npx`:
+
+```bash
+npx @yizixu/siyuan-mcp
+```
+
+Or install globally:
+
+```bash
+npm install -g @yizixu/siyuan-mcp
+siyuan-mcp
+```
+
 ### From source
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/yizixu/siyuan-mcp.git
 cd siyuan-mcp
 npm install
 npm run build
@@ -51,6 +66,24 @@ Copy `.env.example` to `.env` and fill in your token, or set environment variabl
 ## MCP Client Setup
 
 ### Claude Desktop / Cursor
+
+Using npm:
+
+```json
+{
+  "mcpServers": {
+    "siyuan": {
+      "command": "npx",
+      "args": ["-y", "@yizixu/siyuan-mcp"],
+      "env": {
+        "SIYUAN_API_TOKEN": "your-token-here"
+      }
+    }
+  }
+}
+```
+
+Using a local source checkout:
 
 ```json
 {

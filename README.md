@@ -309,6 +309,18 @@ npm start          # Run compiled server
 npm run dev        # Watch mode (re-compiles on change)
 ```
 
+### Release
+
+Publishing to npm is automated via `.github/workflows/publish.yml`:
+
+```bash
+npm version patch   # or minor / major — bumps package.json and creates a git tag
+git push && git push --tags
+```
+
+Pushing a tag matching `v*.*.*` triggers the workflow (check → build → publish with provenance).
+Requires an `NPM_TOKEN` secret (npm automation token) configured in the repo's Actions secrets.
+
 ---
 
 ## License

@@ -4,7 +4,8 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 
 
 ## Features
 
-- **Unified full-text `search`** — one keyword call finds document titles, block content, **and database rows**, and hands back the `avId` to drill in (plain SQL can't see database rows)
+- **5-tool gateway** — instead of ~50 flat tools, the server exposes just `siyuan_discover` / `siyuan_describe` / `siyuan_execute_read` / `siyuan_execute_write` / `siyuan_execute_destructive`. Capabilities are discovered on demand, keeping the MCP client's context small, and destructive operations are isolated behind their own gateway
+- **Unified full-text search** — one keyword call finds document titles, block content, **and database rows**, and hands back the `avId` to drill in (plain SQL can't see database rows)
 - **Full Attribute View (database) support** — create, read, write, update, delete databases and rows; manage fields, views, select options, and doc-backed rows
 - **Document & block management** — create, update, delete, export, fold/unfold, move, and batch-edit documents and blocks
 - **Full notebook lifecycle** — list, create, rename, open, close, remove, get/set config
@@ -114,90 +115,92 @@ For remote SiYuan:
 
 ## Tool Reference
 
-### Search (start here to find things)
+The server exposes **5 gateway tools**. All actual capabilities are *operations* named `domain.action`, discovered and executed through the gateway:
 
 | Tool | Description |
 |---|---|
-| `search` | Full-text keyword search across titles, block content, **and database rows**; groups by document and returns the `avId` of any database hit so you can `read_database` it |
+| `siyuan_discover` | Find operations by keyword, domain, or risk level. Returns name + one-line summary + risk |
+| `siyuan_describe` | Get one operation's full input JSON Schema, an example call, and its suggested preflight operation |
+| `siyuan_execute_read` | Execute a read-only operation (search, list, get, read, export) |
+| `siyuan_execute_write` | Execute a write operation (create, insert, update, rename, move, upload) |
+| `siyuan_execute_destructive` | Execute a destructive operation (delete/remove). Isolated so MCP clients can gate it separately |
 
-### System / Utility
+Typical flow:
 
-| Tool | Description |
-|---|---|
-| `siyuan_sql` | Execute a read-only SQL query against SiYuan's SQLite (note: cannot see database/AV rows — use `search`/`read_database` for those) |
-| `workspace_map` | Get all notebook IDs, document tree (2 levels), and database IDs |
-| `upload_asset` | Upload a file (base64) to the workspace assets folder |
-| `get_system_info` | Get SiYuan version and boot progress |
-| `get_current_time` | Get the server's current time (epoch ms + ISO) |
-| `push_message` | Show a toast notification in the SiYuan UI (info or error) |
-| `render_sprig` | Render a Sprig template string (dates, sequences, etc.) |
-| `pandoc_convert` | Run a Pandoc conversion via SiYuan's bundled Pandoc |
-| `forward_proxy` | Make a server-side HTTP request through the kernel (avoids CORS) |
+```
+siyuan_discover(query: "database rows")
+→ [{ name: "db.add_rows", risk: "write", ... }]
 
-### Files (raw workspace access)
+siyuan_describe(operation: "db.add_rows")
+→ { inputSchema, example, executeVia: "siyuan_execute_write", preflightOperation: "db.read" }
 
-| Tool | Description |
-|---|---|
-| `read_file` | Read a raw workspace file by path |
-| `write_file` | Write/overwrite a raw workspace text file |
-| `remove_file` | Delete a workspace file or folder |
-| `rename_file` | Rename/move a workspace file |
-| `read_dir` | List entries of a workspace directory |
+siyuan_execute_write(operation: "db.add_rows", args: { avId, rows: [...] })
+```
 
-### Notebooks
+### Operation Catalog (54 operations)
 
-| Tool | Description |
-|---|---|
-| `list_notebooks` | List all notebooks with ID, name, status |
-| `create_notebook` | Create a new notebook |
-| `rename_notebook` | Rename a notebook by ID |
-| `manage_notebook` | Open, close, or remove (delete) a notebook |
-| `get_notebook_conf` | Get a notebook's configuration |
-| `set_notebook_conf` | Update a notebook's configuration |
+**search / system**
 
-### Documents
+| Operation | Risk | Description |
+|---|---|---|
+| `search.fulltext` | read | Full-text keyword search across titles, blocks **and database rows**; returns `avId` for database hits |
+| `system.sql` | read | Read-only SQL against SiYuan's SQLite (cannot see database/AV rows — use `search.fulltext` / `db.read`) |
+| `system.workspace_map` | read | All notebook IDs, document tree (2 levels), database IDs |
+| `system.info` / `system.time` | read | SiYuan version / server time |
+| `system.render_sprig` | read | Render a Sprig template string |
+| `system.upload_asset` | write | Upload a file (base64) to the assets folder |
+| `system.push_message` | write | Show a toast notification in the SiYuan UI |
+| `system.pandoc` | write | Run a Pandoc conversion |
+| `system.forward_proxy` | write | Server-side HTTP request through the kernel |
 
-| Tool | Description |
-|---|---|
-| `create_document` | Create a document with optional Markdown content |
-| `update_document` | Rename, replace content, or move a document |
-| `delete_document` | Delete a document (with optional dryRun) |
-| `export_doc_markdown` | Export a document as clean standard Markdown (resolves refs/embeds) |
-| `resolve_doc_path` | Convert a document ID ↔ human-readable path |
+**notebook**
 
-### Blocks
+| Operation | Risk | Description |
+|---|---|---|
+| `notebook.list` | read | List all notebooks |
+| `notebook.get_conf` | read | Get a notebook's configuration |
+| `notebook.create` / `notebook.rename` / `notebook.set_conf` | write | Create / rename / configure |
+| `notebook.open` / `notebook.close` | write | Mount / unmount |
+| `notebook.remove` | destructive | Permanently delete a notebook |
 
-| Tool | Description |
-|---|---|
-| `insert_block` | Insert a Markdown/DOM block (by parentID, previousID, or nextID) |
-| `update_block` | Update a block's content |
-| `delete_block` | Delete a block by ID |
-| `move_block` | Move a block to a new parent/position |
-| `fold_block` | Fold (collapse) or unfold (expand) a block |
-| `batch_block_ops` | Execute multiple insert/update/delete block operations in one call |
-| `set_block_attrs` | Set custom attributes on a block |
-| `get_block_attrs` | Get all attributes of a block |
-| `get_block_content` | Get raw Kramdown content of a block |
-| `get_child_blocks` | List the direct child blocks of a container block |
+**doc**
 
-### Database (Attribute View) — 14 tools
+| Operation | Risk | Description |
+|---|---|---|
+| `doc.export_markdown` | read | Read a full document as clean Markdown |
+| `doc.resolve_path` | read | Convert document ID ↔ human-readable path |
+| `doc.create` / `doc.update` | write | Create / rename / replace content / move |
+| `doc.delete` | destructive | Delete a document (supports dryRun) |
 
-| Tool | Description |
-|---|---|
-| `create_database` | Create an AV database, optionally embedded in a document |
-| `read_database` | Read a database: fields + all rows; supports filter and viewId |
-| `write_db_rows` | Add one or more rows with field values |
-| `update_db_cells` | Update cells across one or more rows |
-| `delete_db_rows` | Delete rows by block ID |
-| `manage_db_fields` | Add, remove, or rename fields (columns) |
-| `list_views` | List database views with type, filters, sorts |
-| `add_view` | Add a table, kanban, gallery, calendar, or list view |
-| `update_view` | Rename, change type, set filters or sorts on a view |
-| `delete_view` | Remove a view |
-| `list_select_options` | List options for a select/mSelect field |
-| `set_select_options` | Replace options for a select/mSelect field |
-| `bind_row_to_doc` | Add existing documents as doc-backed rows |
-| `create_doc_backed_row` | Create a document and add it as a database row |
+**block**
+
+| Operation | Risk | Description |
+|---|---|---|
+| `block.get_content` / `block.get_attrs` / `block.list_children` | read | Read Kramdown / attributes / children |
+| `block.insert` / `block.update` / `block.move` / `block.fold` / `block.set_attrs` | write | Edit blocks |
+| `block.batch` | write* | Multiple ops in one call; *requires the destructive gateway if any op is a delete |
+| `block.delete` | destructive | Delete a block |
+
+**db (Attribute View)**
+
+| Operation | Risk | Description |
+|---|---|---|
+| `db.read` | read | Field definitions + rows, with filter/paging |
+| `db.list_views` / `db.list_select_options` | read | List views / select options |
+| `db.create` / `db.add_rows` / `db.update_cells` | write | Create database / add rows / update cells |
+| `db.add_field` / `db.rename_field` | write | Manage columns |
+| `db.add_view` / `db.update_view` | write | Manage views |
+| `db.set_select_options` | write | Replace select/mSelect options |
+| `db.bind_row_to_doc` / `db.create_doc_backed_row` | write | Doc-backed rows |
+| `db.delete_rows` / `db.delete_view` / `db.remove_field` | destructive | Delete rows / views / columns |
+
+**file (raw workspace access)**
+
+| Operation | Risk | Description |
+|---|---|---|
+| `file.read` / `file.list_dir` | read | Read a file / list a directory |
+| `file.write` / `file.rename` | write | Write / rename-move |
+| `file.remove` | destructive | Delete a file or folder |
 
 ---
 
@@ -227,61 +230,55 @@ Read-only / system types: `block`, `created`, `updated`, `lineNumber`, `template
 ### Find anything (search first!)
 
 ```
-search(query: "todo")
+siyuan_execute_read(operation: "search.fulltext", args: { query: "todo" })
 → Returns matching blocks grouped by document.
   If a match is inside a database, the result lists its avId in
   `databasesFound`. Then:
 
-read_database(avId: "<avId from search>")
+siyuan_execute_read(operation: "db.read", args: { avId: "<avId from search>" })
 → Full structured rows of that to-do / task / table database.
 ```
 
-> **Why not SQL?** `siyuan_sql` only sees the `blocks`/`attributes`/`spans`/`assets`
+> **Why not SQL?** `system.sql` only sees the `blocks`/`attributes`/`spans`/`assets`
 > tables — it can find a database *block* but **not the rows inside it**. Always
-> use `search` (or `read_database`) to locate to-do items, tasks and table entries.
+> use `search.fulltext` (or `db.read`) to locate to-do items, tasks and table entries.
 
 ### Create a database with fields
 
 ```
-1. create_document(notebookId, path: "/My Projects")
+1. siyuan_execute_write(operation: "doc.create",
+     args: { notebookId, path: "/My Projects" })
    → returns docId
 
-2. create_database(name: "Tasks", parentDocId: docId,
-     fields: [
-       { name: "Status", type: "select", options: ["Todo", "In Progress", "Done"] },
-       { name: "Due Date", type: "date" },
-       { name: "Priority", type: "select", options: ["Low", "Medium", "High"] }
-     ])
+2. siyuan_execute_write(operation: "db.create",
+     args: { name: "Tasks", parentDocId: docId,
+       fields: [
+         { name: "Status", type: "select", options: ["Todo", "In Progress", "Done"] },
+         { name: "Due Date", type: "date" },
+         { name: "Priority", type: "select", options: ["Low", "Medium", "High"] }
+       ] })
    → returns { avID, viewId }
 ```
 
-### Add rows
+### Add rows / update cells
 
 ```
-write_db_rows(avId, rows: [
-  { "Status": "Todo", "Due Date": "2024-12-31", "Priority": "High" },
-  { "Status": "In Progress", "Due Date": "2024-12-15", "Priority": "Medium" }
-])
-```
+siyuan_execute_write(operation: "db.add_rows", args: { avId, rows: [
+  { "Status": "Todo", "Due Date": "2024-12-31", "Priority": "High" }
+] })
 
-### Query with SQL
-
-```
-siyuan_sql(stmt: "SELECT id, content, hpath FROM blocks WHERE type='d' AND content LIKE '%project%' LIMIT 20")
-```
-
-### Update a cell
-
-```
-update_db_cells(avId, updates: [
+siyuan_execute_write(operation: "db.update_cells", args: { avId, updates: [
   { rowId: "20240101120000-abc1234", fieldName: "Status", value: "Done" }
-])
+] })
 ```
 
-### Get workspace overview
+### Query with SQL / workspace overview
 
 ```
-workspace_map()
+siyuan_execute_read(operation: "system.sql",
+  args: { stmt: "SELECT id, content, hpath FROM blocks WHERE type='d' LIMIT 20" })
+
+siyuan_execute_read(operation: "system.workspace_map", args: {})
 → Returns all notebook IDs, document paths, and database IDs as Markdown
 ```
 

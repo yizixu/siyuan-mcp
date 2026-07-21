@@ -6,22 +6,22 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { getAllTools, handleTool } from './tools/index';
+import { gatewayTools, handleGatewayTool } from './gateway';
 
 const server = new Server(
-  { name: 'siyuan-mcp', version: '1.0.0' },
+  { name: 'siyuan-mcp', version: '2.0.0' },
   { capabilities: { tools: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools: getAllTools() };
+  return { tools: gatewayTools };
 });
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
   try {
-    const result = await handleTool(name, args as Record<string, unknown>);
+    const result = await handleGatewayTool(name, args as Record<string, unknown>);
     return result as any;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

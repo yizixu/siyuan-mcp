@@ -319,7 +319,8 @@ git push && git push --tags
 ```
 
 Pushing a tag matching `v*.*.*` triggers the workflow (check → build → publish with provenance).
-Requires an `NPM_TOKEN` secret (npm automation token) configured in the repo's Actions secrets.
+Auth uses [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) — no token secret needed;
+the GitHub Actions publisher is registered in the package's settings on npmjs.com.
 
 ---
 

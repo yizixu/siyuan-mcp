@@ -1,6 +1,6 @@
 {
   "name": "@yizixu/siyuan-mcp",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A comprehensive MCP server for SiYuan Note with full Attribute View database support, exposed through a 5-tool discover/describe/execute gateway",
   "main": "dist/index.js",
   "bin": {
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
-    "test": "npm run check && npm run build",
+    "test": "npm run check && npm run build && node scripts/test-doc-mutate.mjs",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",

@@ -292,6 +292,39 @@ const mod: ToolModule = {
       },
     },
 
+    {
+      name: 'find_db_rows',
+      description:
+        'Search database rows by primary-key (title) keyword using SiYuan ' +
+        '/api/av/getAttributeViewPrimaryKeyValues. Prefer this over full-text ' +
+        'search when looking up task/product names inside a known Attribute View. ' +
+        'Returns matching row IDs and primary-key labels.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          avId: {
+            type: 'string',
+            description: 'Attribute View ID',
+          },
+          keyword: {
+            type: 'string',
+            description:
+              'Substring matched against primary-key text (case-insensitive). ' +
+              'Empty string returns a page of recent primary keys.',
+          },
+          page: {
+            type: 'number',
+            description: 'Page number, 1-based (default: 1)',
+          },
+          pageSize: {
+            type: 'number',
+            description: 'Items per page (default: 32; kernel default is 16 when omitted)',
+          },
+        },
+        required: ['avId'],
+      },
+    },
+
     // -- Rows --
     {
       name: 'write_db_rows',
@@ -686,6 +719,39 @@ const mod: ToolModule = {
 
         const viewId = (avJson as { views: Array<{ id: string }> }).views[0].id;
         return ok({ avID, viewId, name: dbName, embeddedBlockId: blockId ?? null });
+      }
+
+      // -- find_db_rows --
+      if (name === 'find_db_rows') {
+        const { avId, keyword = '', page = 1, pageSize = 32 } = args as {
+          avId: string;
+          keyword?: string;
+          page?: number;
+          pageSize?: number;
+        };
+        if (!avId) return err('avId is required');
+
+        const data = await client.getAVPrimaryKeyValues(avId, { keyword, page, pageSize });
+        const values = data.rows?.values ?? [];
+        const rows = values.map((v) => ({
+          rowId: v.blockID ?? v.block?.id ?? '',
+          label: v.block?.content ?? '',
+          updated: v.block?.updated ?? null,
+        }));
+
+        return ok({
+          avId,
+          name: data.name ?? null,
+          primaryKeyName: data.rows?.key?.name ?? null,
+          keyword,
+          page,
+          pageSize,
+          returned: rows.length,
+          rows,
+          mirrorBlockIDs: data.blockIDs ?? [],
+          hint:
+            'Use rowId with update_db_cells / delete_db_rows. Prefer this over search.fulltext for AV title lookup.',
+        });
       }
 
       // -- read_database --

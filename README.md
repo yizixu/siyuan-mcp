@@ -6,8 +6,9 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 
 
 - **5-tool gateway** — instead of ~50 flat tools, the server exposes just `siyuan_discover` / `siyuan_describe` / `siyuan_execute_read` / `siyuan_execute_write` / `siyuan_execute_destructive`. Capabilities are discovered on demand, keeping the MCP client's context small, and destructive operations are isolated behind their own gateway
 - **Unified full-text search** — one keyword call finds document titles, block content, **and database rows**, and hands back the `avId` to drill in (plain SQL can't see database rows)
-- **Full Attribute View (database) support** — create, read, write, update, delete databases and rows; manage fields, views, select options, and doc-backed rows
-- **Document & block management** — create, update, delete, export, fold/unfold, move, and batch-edit documents and blocks
+- **Full Attribute View (database) support** — create, read, write, update, delete databases and rows; manage fields, views, select options, and doc-backed rows; **`db.find_rows`** searches primary-key titles via kernel API (better than full-text for task dedupe)
+- **Document & block management** — create, update, delete, export, fold/unfold, move, and batch-edit; **`doc.append`** adds Markdown without wiping children; **`doc.update`** preserves Attribute View embeds unless `force: true`
+
 - **Full notebook lifecycle** — list, create, rename, open, close, remove, get/set config
 - **Workspace file access** — read/write/remove/rename files and list directories in the workspace
 - **SQL query** — direct access to SiYuan's SQLite via `siyuan_sql`
@@ -137,7 +138,7 @@ siyuan_describe(operation: "db.add_rows")
 siyuan_execute_write(operation: "db.add_rows", args: { avId, rows: [...] })
 ```
 
-### Operation Catalog (54 operations)
+### Operation Catalog (56 operations)
 
 **search / system**
 
@@ -169,7 +170,8 @@ siyuan_execute_write(operation: "db.add_rows", args: { avId, rows: [...] })
 |---|---|---|
 | `doc.export_markdown` | read | Read a full document as clean Markdown |
 | `doc.resolve_path` | read | Convert document ID ↔ human-readable path |
-| `doc.create` / `doc.update` | write | Create / rename / replace content / move |
+| `doc.create` / `doc.append` | write | Create / append Markdown (append never deletes children) |
+| `doc.update` | write | Rename / replace content (preserves AV embeds unless `force`) / move |
 | `doc.delete` | destructive | Delete a document (supports dryRun) |
 
 **block**
@@ -186,6 +188,7 @@ siyuan_execute_write(operation: "db.add_rows", args: { avId, rows: [...] })
 | Operation | Risk | Description |
 |---|---|---|
 | `db.read` | read | Field definitions + rows, with filter/paging |
+| `db.find_rows` | read | Search rows by primary-key keyword (title); returns row IDs + labels |
 | `db.list_views` / `db.list_select_options` | read | List views / select options |
 | `db.create` / `db.add_rows` / `db.update_cells` | write | Create database / add rows / update cells |
 | `db.add_field` / `db.rename_field` | write | Manage columns |
@@ -241,7 +244,7 @@ siyuan_execute_read(operation: "db.read", args: { avId: "<avId from search>" })
 
 > **Why not SQL?** `system.sql` only sees the `blocks`/`attributes`/`spans`/`assets`
 > tables — it can find a database *block* but **not the rows inside it**. Always
-> use `search.fulltext` (or `db.read`) to locate to-do items, tasks and table entries.
+> use `search.fulltext` to find docs/blocks, `db.find_rows` for titles inside a known database, or `db.read` for full rows.
 
 ### Create a database with fields
 

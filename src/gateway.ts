@@ -55,7 +55,18 @@ const OPERATION_METADATA: Record<string, OperationMeta> = {
 
   // documents
   create_document: ['doc.create', 'write', 'Create a document with optional Markdown content', 'notebook.list'],
-  update_document: ['doc.update', 'write', 'Rename, replace content, or move a document', 'doc.export_markdown'],
+  update_document: [
+    'doc.update',
+    'write',
+    'Rename, replace content (preserves Attribute View blocks unless force), or move a document',
+    'doc.export_markdown',
+  ],
+  append_document: [
+    'doc.append',
+    'write',
+    'Append Markdown to a document without deleting existing blocks (including AV embeds)',
+    'doc.export_markdown',
+  ],
   delete_document: ['doc.delete', 'destructive', 'Delete a document and all its blocks', 'doc.resolve_path'],
   export_doc_markdown: ['doc.export_markdown', 'read', 'Read a full document as clean Markdown'],
   resolve_doc_path: ['doc.resolve_path', 'read', 'Convert document ID ↔ human-readable path'],
@@ -75,6 +86,12 @@ const OPERATION_METADATA: Record<string, OperationMeta> = {
   // database (Attribute View)
   create_database: ['db.create', 'write', 'Create an Attribute View database, optionally embedded in a document'],
   read_database: ['db.read', 'read', 'Read a database: field definitions + rows, with filter/paging'],
+  find_db_rows: [
+    'db.find_rows',
+    'read',
+    'Search database rows by primary-key (title) keyword; returns row IDs and labels',
+    'db.read',
+  ],
   write_db_rows: ['db.add_rows', 'write', 'Add rows to a database (field name → value)', 'db.read'],
   update_db_cells: ['db.update_cells', 'write', 'Update cells across one or more rows', 'db.read'],
   delete_db_rows: ['db.delete_rows', 'destructive', 'Delete rows by block ID', 'db.read'],

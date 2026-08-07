@@ -172,6 +172,33 @@ export class SiYuanClient {
   }
 
   /**
+   * Search primary-key (title) texts of database rows.
+   * Uses public `/api/av/getAttributeViewPrimaryKeyValues` — unlike full-text
+   * block search, this matches individual row titles inside an Attribute View.
+   */
+  getAVPrimaryKeyValues(
+    id: string,
+    opts: { keyword?: string; page?: number; pageSize?: number } = {}
+  ): Promise<{
+    name?: string;
+    blockIDs?: string[];
+    rows?: {
+      key?: { id?: string; name?: string; type?: string };
+      values?: Array<{
+        blockID?: string;
+        block?: { id?: string; content?: string; updated?: number };
+      }>;
+    };
+  }> {
+    return this.post('/api/av/getAttributeViewPrimaryKeyValues', {
+      id,
+      keyword: opts.keyword ?? '',
+      page: opts.page ?? 1,
+      pageSize: opts.pageSize ?? 32,
+    });
+  }
+
+  /**
    * Add new detached rows to a database, optionally pre-filling values.
    * Each row becomes an `insertAttrViewBlock` op (detached) plus one
    * `updateAttrViewCell` op per value, all in a single transaction.

@@ -124,6 +124,8 @@ export interface AVCellValue {
   updated?: { content: number; isNotEmpty: boolean };
   lineNumber?: { isNotEmpty: boolean };
   template?: { content: string };
+  /** Only meaningful on a primary (block) value: false = row bound to a document. */
+  isDetached?: boolean;
 }
 
 export interface AVData {

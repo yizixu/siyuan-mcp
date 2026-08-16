@@ -21,11 +21,30 @@ import type { ToolModule, AVFieldType, AVViewType, AVKeyOption, AVKey, AVCellVal
 
 /**
  * Build the SiYuan AV cell value object from a plain JS value.
+ *
+ * `current` is the cell's existing value, needed only for the primary (block)
+ * field: the kernel merges the payload onto the stored value and decides
+ * bind/unbind from `isDetached`, so both that flag and the bound block ID have
+ * to be carried over or a doc-backed row would be silently detached.
  */
-function buildCellValue(key: AVKey, value: unknown): Record<string, unknown> {
+function buildCellValue(
+  key: AVKey,
+  value: unknown,
+  current?: AVCellValue
+): Record<string, unknown> {
   const base: Record<string, unknown> = { keyID: key.id, type: key.type };
 
   switch (key.type) {
+    case 'block': {
+      // A bound row carries the document ID in `block.id` and omits
+      // `isDetached` entirely, so presence of that ID is the reliable signal.
+      const boundBlockID = current?.block?.id ?? '';
+      return {
+        ...base,
+        isDetached: !boundBlockID,
+        block: { id: boundBlockID, content: String(value ?? '') },
+      };
+    }
     case 'text':
       return { ...base, text: { content: String(value ?? '') } };
     case 'number':
@@ -834,6 +853,11 @@ const mod: ToolModule = {
           av.keyValues.map((kv) => [kv.key.name.toLowerCase(), kv.key])
         );
         const keyById = new Map(av.keyValues.map((kv) => [kv.key.id, kv.key]));
+        const currentByKeyAndRow = new Map(
+          av.keyValues.flatMap((kv) =>
+            kv.values.map((v) => [`${kv.key.id} ${v.blockID}`, v] as const)
+          )
+        );
 
         let updated = 0;
         for (const upd of updates) {
@@ -843,7 +867,8 @@ const mod: ToolModule = {
 
           if (!key) continue;
 
-          const cellValue = buildCellValue(key, upd.value);
+          const current = currentByKeyAndRow.get(`${key.id} ${upd.rowId}`);
+          const cellValue = buildCellValue(key, upd.value, current);
           await client.updateAVCell(avId, key.id, upd.rowId, cellValue);
           updated++;
         }

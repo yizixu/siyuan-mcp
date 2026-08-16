@@ -21,8 +21,12 @@ A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io) 
 
 ### Prerequisites
 
-- [SiYuan Note](https://b3log.org/siyuan/) running (local or remote)
+- [SiYuan Note](https://b3log.org/siyuan/) **3.8.0 or newer**, running (local or remote)
 - Node.js 18+
+
+Older SiYuan releases are not supported: 3.8.0 raised the Attribute View storage
+format (`spec` 5 → 7) and a kernel refuses to open databases written by a newer
+one, so mixing versions breaks database access regardless of this server.
 
 ### From npm
 
@@ -304,7 +308,7 @@ SiYuan Attribute Views are stored as JSON files at:
 
 That JSON carries a `spec` version, and a kernel refuses to open an AV whose spec is newer than its own (`无法打开新版本创建的数据库视图`). This server therefore never writes those files itself: `db.create` inserts an empty database block and lets the kernel materialise the AV, so it is always stamped with the running SiYuan's spec. Reads go through `/api/av/*` and writes through `/api/transactions`.
 
-If a database fails to open with that message, the data was written by a **newer SiYuan than the one serving this API** (e.g. synced from a device that updated first) — update SiYuan on this machine to match.
+If a database fails to open with that message, the data was written by a **newer SiYuan than the one serving this API** (e.g. synced from a device that updated first) — update SiYuan on this machine to match. Keep every device on the same major version; the format only moves forward.
 
 ---
 

@@ -194,42 +194,33 @@ const mod: ToolModule = {
 
         for (const nb of notebooks) {
           if (nb.closed) continue;
-          try {
-            const docs = await client.sql(
-              `SELECT id, hpath, path FROM blocks ` +
-                `WHERE box = '${nb.id}' AND type = 'd' ` +
-                `ORDER BY hpath LIMIT ${maxDocsPerNotebook * 3}`
-            );
-            notebookDocs[nb.id] = docs
-              .filter((d) => pathDepth(String(d.path ?? '')) <= 2)
-              .slice(0, maxDocsPerNotebook)
-              .map((d) => ({
-                id: String(d.id),
-                hpath: String(d.hpath),
-                type: 'd',
-              }));
-          } catch {
-            notebookDocs[nb.id] = [];
-          }
+          const docs = await client.sql(
+            `SELECT id, hpath, path FROM blocks ` +
+              `WHERE box = '${nb.id}' AND type = 'd' ` +
+              `ORDER BY hpath LIMIT ${maxDocsPerNotebook * 3}`
+          );
+          notebookDocs[nb.id] = docs
+            .filter((d) => pathDepth(String(d.path ?? '')) <= 2)
+            .slice(0, maxDocsPerNotebook)
+            .map((d) => ({
+              id: String(d.id),
+              hpath: String(d.hpath),
+              type: 'd',
+            }));
         }
 
         // 3. All AV databases. The avID lives in the AV block's DOM
         // (`data-av-id`); SiYuan indexes no `av-id` attribute for it.
-        let databases: Array<{ blockId: string; avId: string; docId?: string }> = [];
-        try {
-          const avBlocks = await client.sql(
-            `SELECT id, root_id, markdown FROM blocks WHERE type = 'av' LIMIT 500`
-          );
-          databases = avBlocks
-            .map((r) => ({
-              blockId: String(r.id),
-              avId: AV_ID_RE.exec(String(r.markdown ?? ''))?.[1] ?? '',
-              docId: r.root_id ? String(r.root_id) : undefined,
-            }))
-            .filter((d) => d.avId);
-        } catch {
-          // AV query might fail in older SiYuan versions
-        }
+        const avBlocks = await client.sql(
+          `SELECT id, root_id, markdown FROM blocks WHERE type = 'av' LIMIT 500`
+        );
+        const databases = avBlocks
+          .map((r) => ({
+            blockId: String(r.id),
+            avId: AV_ID_RE.exec(String(r.markdown ?? ''))?.[1] ?? '',
+            docId: r.root_id ? String(r.root_id) : undefined,
+          }))
+          .filter((d) => d.avId);
 
         // Format as Markdown
         let md = '# SiYuan Workspace Map\n\n';

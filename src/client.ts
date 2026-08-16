@@ -250,9 +250,9 @@ export class SiYuanClient {
   }
 
   /**
-   * Add new detached rows to a database, optionally pre-filling values.
-   * Each row becomes an `insertAttrViewBlock` op (detached) plus one
-   * `updateAttrViewCell` op per value, all in a single transaction.
+   * Add new detached rows to a database, pre-filling their values.
+   * The kernel adopts the row ID carried by each row's first value, so the IDs
+   * are generated here and returned without having to look them up afterwards.
    */
   async appendAVRows(
     avID: string,
@@ -261,53 +261,27 @@ export class SiYuanClient {
       values: Array<Record<string, unknown>>;
     }>
   ): Promise<{ rowIDs: string[] }> {
-    const blockKeyValues = (av: AVData) =>
-      av.keyValues.find((kv) => kv.key.type === 'block')?.values ?? [];
+    const av = await this.getAV(avID);
+    const blockKeyID = av.keyValues.find((kv) => kv.key.type === 'block')?.key.id;
+    if (!blockKeyID) throw new Error(`Database ${avID} has no primary (block) field`);
 
-    // insertAttrViewBlock assigns its own row id (ignoring any we pass) and does
-    // not return it, so we diff the row set before/after to learn the new ids.
-    const before = blockKeyValues(await this.getAV(avID));
-    const beforeIDs = new Set(before.map((v) => v.blockID));
+    const rowIDs = blocksValues.map(() => generateId());
+    const payload = blocksValues.map((bv, idx) => [
+      // Must come first: the kernel reads the row ID off this value.
+      {
+        keyID: blockKeyID,
+        blockID: rowIDs[idx],
+        type: 'block',
+        isDetached: true,
+        block: { id: rowIDs[idx], content: bv.content ?? '' },
+      },
+      ...bv.values.map((value) => ({ ...value, blockID: rowIDs[idx] })),
+    ]);
 
-    const insertOps = blocksValues.map((bv) => ({
-      action: 'insertAttrViewBlock',
+    await this.post('/api/av/appendAttributeViewDetachedBlocksWithValues', {
       avID,
-      previousID: '',
-      srcs: [{ id: generateId(), isDetached: true, content: bv.content ?? '' }],
-    }));
-    await this.transaction(insertOps);
-
-    const after = blockKeyValues(await this.getAV(avID));
-    const newRows = after.filter((v) => !beforeIDs.has(v.blockID));
-
-    // Map each input row to an actual new row id: prefer matching by content,
-    // falling back to positional order for blank/duplicate titles.
-    const claimed = new Set<string>();
-    const rowIDs = blocksValues.map((bv, idx) => {
-      const wantContent = bv.content ?? '';
-      let match = wantContent
-        ? newRows.find((v) => !claimed.has(v.blockID!) && v.block?.content === wantContent)
-        : undefined;
-      if (!match) match = newRows.find((v) => !claimed.has(v.blockID!)) ?? newRows[idx];
-      if (match?.blockID) claimed.add(match.blockID);
-      return match?.blockID ?? '';
+      blocksValues: payload,
     });
-
-    const cellOps: Array<Record<string, unknown>> = [];
-    blocksValues.forEach((bv, idx) => {
-      const rowID = rowIDs[idx];
-      if (!rowID) return;
-      for (const value of bv.values) {
-        cellOps.push({
-          action: 'updateAttrViewCell',
-          avID,
-          keyID: (value as { keyID?: string }).keyID,
-          rowID,
-          data: value,
-        });
-      }
-    });
-    if (cellOps.length) await this.transaction(cellOps);
     return { rowIDs };
   }
 

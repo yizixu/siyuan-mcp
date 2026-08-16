@@ -260,8 +260,10 @@ siyuan_execute_read(operation: "db.read", args: { avId: "<avId from search>" })
          { name: "Due Date", type: "date" },
          { name: "Priority", type: "select", options: ["Low", "Medium", "High"] }
        ] })
-   → returns { avID, viewId }
+   → returns { avID, viewId, embeddedBlockId, primaryFieldId, fields }
 ```
+
+`parentDocId` is required — a database lives inside a document block.
 
 ### Add rows / update cells
 
@@ -300,7 +302,9 @@ SiYuan's `renderAttributeView` renders data through a view lens — filtered vie
 SiYuan Attribute Views are stored as JSON files at:
 `{workspace}/data/storage/av/{avID}.json`
 
-The `create_database` tool writes this JSON file via the SiYuan HTTP file API (`/api/file/putFile`) — no local filesystem access required. All other AV operations use the official `/api/av/` HTTP endpoints.
+That JSON carries a `spec` version, and a kernel refuses to open an AV whose spec is newer than its own (`无法打开新版本创建的数据库视图`). This server therefore never writes those files itself: `db.create` inserts an empty database block and lets the kernel materialise the AV, so it is always stamped with the running SiYuan's spec. Reads go through `/api/av/*` and writes through `/api/transactions`.
+
+If a database fails to open with that message, the data was written by a **newer SiYuan than the one serving this API** (e.g. synced from a device that updated first) — update SiYuan on this machine to match.
 
 ---
 

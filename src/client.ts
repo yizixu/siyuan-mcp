@@ -161,7 +161,10 @@ export class SiYuanClient {
   // ─── Attribute View (Database) ──────────────────────────────────────────────
 
   /** Render a database view – returns paginated rows through the view lens */
-  renderAV(id: string, opts: { viewID?: string; pageSize?: number; page?: number } = {}): Promise<AVRenderResult> {
+  renderAV(
+    id: string,
+    opts: { viewID?: string; blockID?: string; pageSize?: number; page?: number } = {}
+  ): Promise<AVRenderResult> {
     return this.post('/api/av/renderAttributeView', { id, ...opts });
   }
 
@@ -169,6 +172,54 @@ export class SiYuanClient {
   async getAV(id: string): Promise<AVData> {
     const result = await this.post<{ av: AVData }>('/api/av/getAttributeView', { id });
     return result.av;
+  }
+
+  /**
+   * Locate the block that embeds an Attribute View. The avID lives in the AV
+   * block's DOM (`data-av-id`), not in the `attributes` table — SiYuan only
+   * indexes `custom-avs` (on member blocks) and `custom-sy-av-view`.
+   */
+  async findAVBlock(avID: string): Promise<{ blockID: string; rootID: string } | null> {
+    const query = async () =>
+      (
+        await this.sql(
+          `SELECT id, root_id FROM blocks WHERE type = 'av' AND markdown LIKE '%${avID}%' LIMIT 1`
+        )
+      )[0];
+
+    // SiYuan indexes into SQLite asynchronously, so a block created moments ago
+    // may not be queryable yet; flush the pending transaction and look again.
+    let row = await query();
+    if (!row) {
+      await this.flushTransaction();
+      row = await query();
+    }
+    if (!row) return null;
+    return { blockID: String(row.id), rootID: String(row.root_id) };
+  }
+
+  /**
+   * Create a database the way SiYuan itself does: insert an empty
+   * `NodeAttributeView` block and let the kernel materialise the AV JSON.
+   * The kernel always writes its own `CurrentSpec`, so the file never carries
+   * a spec this server invented — that is what keeps it working across
+   * SiYuan releases. Returns the new avID plus the block that embeds it.
+   */
+  async createAV(parentDocID: string): Promise<{ avID: string; blockID: string; viewID: string }> {
+    const avID = generateId();
+    const blockID = generateId();
+    const dom =
+      `<div data-type="NodeAttributeView" data-av-id="${avID}" ` +
+      `data-av-type="table" data-node-id="${blockID}"></div>`;
+    await this.insertBlock('dom', dom, { parentID: parentDocID });
+    // The AV JSON is written lazily on first render.
+    const rendered = await this.renderAV(avID, { blockID });
+    return { avID, blockID, viewID: rendered.view?.id ?? '' };
+  }
+
+  /** Rename a database. Kernel reads the avID from `id`, not `avID`. */
+  setAVName(avID: string, name: string): Promise<unknown> {
+    return this.transaction([{ action: 'setAttrViewName', id: avID, data: name }]);
   }
 
   /**
@@ -314,66 +365,109 @@ export class SiYuanClient {
     ]);
   }
 
-  /** Get options list for a select/mSelect field */
-  getAVKeyOptions(avID: string, keyID: string): Promise<{ options: AVKeyOption[] }> {
-    return this.post('/api/av/getAttributeViewKeyOptions', { id: avID, keyID });
+  /**
+   * Get the options of a select/mSelect field. Read from the AV itself —
+   * SiYuan exposes no endpoint that returns a single key's options.
+   */
+  async getAVKeyOptions(avID: string, keyID: string): Promise<AVKeyOption[]> {
+    const av = await this.getAV(avID);
+    const key = av.keyValues.find((kv) => kv.key.id === keyID)?.key;
+    if (!key) throw new Error(`Key ${keyID} not found in database ${avID}`);
+    return key.options ?? [];
   }
 
   /**
-   * Set/replace options for a select/mSelect field by editing the AV JSON
-   * directly (no transaction op exists for this). Note: options are also
-   * auto-created when a cell is written with a new option value.
+   * Replace the options of a select/mSelect field.
+   * `updateAttrViewColOptions` adds/updates and reorders but never deletes, so
+   * options that dropped out of the list are removed explicitly.
    */
   async setAVKeyOptions(avID: string, keyID: string, options: AVKeyOption[]): Promise<unknown> {
-    const path = `/data/storage/av/${avID}.json`;
-    const av = JSON.parse(await this.getFile(path));
-    const kv = (av.keyValues as Array<{ key: { id: string; options?: AVKeyOption[] } }>).find(
-      (k) => k.key.id === keyID
-    );
-    if (!kv) throw new Error(`Key ${keyID} not found in AV ${avID}`);
-    kv.key.options = options;
-    await this.putFile(path, JSON.stringify(av));
-    // Re-render so the kernel reloads the AV from disk.
-    return this.renderAV(avID);
+    const existing = await this.getAVKeyOptions(avID, keyID);
+    const keep = new Set(options.map((o) => o.name));
+    const ops: Array<Record<string, unknown>> = [
+      { action: 'updateAttrViewColOptions', avID, id: keyID, data: options },
+    ];
+    for (const old of existing) {
+      if (!keep.has(old.name)) {
+        ops.push({ action: 'removeAttrViewColOption', avID, id: keyID, data: old.name });
+      }
+    }
+    return this.transaction(ops);
   }
 
-  /** Set sorts on a view */
-  setAVViewSorts(avID: string, viewID: string, sorts: unknown[]): Promise<unknown> {
-    return this.transaction([{ action: 'setAttrViewSorts', avID, viewID, data: sorts }]);
+  /**
+   * Point an AV block at a specific view. `setAttrViewSorts`/`setAttrViewFilters`
+   * resolve their target from the block's current view (they ignore any viewID
+   * in the operation), so selecting the view first is the only supported way to
+   * aim them — this is exactly what the SiYuan UI does when you switch tabs.
+   */
+  private selectAVBlockView(blockID: string, viewID: string): Promise<null> {
+    return this.setBlockAttrs(blockID, { 'custom-sy-av-view': viewID });
   }
 
-  /** Set filters on a view */
-  setAVViewFilters(avID: string, viewID: string, filters: unknown[]): Promise<unknown> {
-    return this.transaction([{ action: 'setAttrViewFilters', avID, viewID, data: filters }]);
+  /** Set sorts on the view currently shown by `blockID`. */
+  setAVViewSorts(avID: string, blockID: string, sorts: unknown[]): Promise<unknown> {
+    return this.transaction([{ action: 'setAttrViewSorts', avID, blockID, data: sorts }]);
   }
 
-  /** Add a new view to a database (best-effort). */
-  addAVView(avID: string, viewType?: string, _viewName?: string): Promise<unknown> {
-    return this.transaction([
-      { action: 'addAttrViewView', avID, ...(viewType ? { layout: viewType } : {}) },
+  /** Set filters on the view currently shown by `blockID`. */
+  setAVViewFilters(avID: string, blockID: string, filters: unknown[]): Promise<unknown> {
+    return this.transaction([{ action: 'setAttrViewFilters', avID, blockID, data: filters }]);
+  }
+
+  /** Add a new view. Returns its ID (the kernel adopts the one we pass in `id`). */
+  async addAVView(
+    avID: string,
+    blockID: string,
+    opts: { layout?: string; name?: string } = {}
+  ): Promise<string> {
+    const viewID = generateId();
+    await this.transaction([
+      {
+        action: 'addAttrViewView',
+        avID,
+        id: viewID,
+        blockID,
+        ...(opts.layout ? { layout: opts.layout } : {}),
+      },
     ]);
+    if (opts.name) await this.setAVViewName(avID, viewID, opts.name);
+    return viewID;
   }
 
-  /** Remove a view */
+  /** Remove a view. Kernel reads the view ID from `id`. */
   removeAVView(avID: string, viewID: string): Promise<unknown> {
-    return this.transaction([{ action: 'removeAttrViewView', avID, viewID }]);
+    return this.transaction([{ action: 'removeAttrViewView', avID, id: viewID }]);
   }
 
-  /** Rename a view */
-  updateAVView(avID: string, viewID: string, opts: { name?: string }): Promise<unknown> {
-    if (!opts.name) return Promise.resolve(null);
-    return this.transaction([{ action: 'setAttrViewViewName', avID, viewID, name: opts.name }]);
+  /** Rename a view. Kernel reads the view ID from `id` and the name from `data`. */
+  setAVViewName(avID: string, viewID: string, name: string): Promise<unknown> {
+    return this.transaction([{ action: 'setAttrViewViewName', avID, id: viewID, data: name }]);
   }
 
-  /** Set filters and/or sorts on a view (kept for the update_view tool). */
-  async setAVViewQuery(
+  /**
+   * Rename a view and/or replace its sorts and filters.
+   * Sorts/filters need the embedding block, so the view is selected on it first.
+   */
+  async updateAVView(
     avID: string,
     viewID: string,
-    query: { sorts?: unknown[]; filters?: unknown[] }
-  ): Promise<unknown> {
-    if (query.sorts !== undefined) await this.setAVViewSorts(avID, viewID, query.sorts);
-    if (query.filters !== undefined) await this.setAVViewFilters(avID, viewID, query.filters);
-    return null;
+    updates: { name?: string; sorts?: unknown[]; filters?: unknown[] }
+  ): Promise<void> {
+    if (updates.name) await this.setAVViewName(avID, viewID, updates.name);
+    if (updates.sorts === undefined && updates.filters === undefined) return;
+
+    const block = await this.findAVBlock(avID);
+    if (!block) {
+      throw new Error(
+        `Database ${avID} is not embedded in any block, so its filters/sorts cannot be targeted`
+      );
+    }
+    await this.selectAVBlockView(block.blockID, viewID);
+    if (updates.sorts !== undefined) await this.setAVViewSorts(avID, block.blockID, updates.sorts);
+    if (updates.filters !== undefined) {
+      await this.setAVViewFilters(avID, block.blockID, updates.filters);
+    }
   }
 
   /** Add existing document blocks as doc-backed (non-detached) rows */

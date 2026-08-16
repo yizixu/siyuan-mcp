@@ -52,24 +52,14 @@ export function err(message: string, detail?: unknown): MCPToolResult {
 
 // ─── Color palette for auto-assigned select options ──────────────────────────
 
-const OPTION_COLORS = [
-  'var(--b3-font-color1)',
-  'var(--b3-font-color2)',
-  'var(--b3-font-color3)',
-  'var(--b3-font-color4)',
-  'var(--b3-font-color5)',
-  'var(--b3-font-color6)',
-  'var(--b3-font-color7)',
-  'var(--b3-font-color8)',
-  'var(--b3-font-color9)',
-  'var(--b3-font-color10)',
-  'var(--b3-font-color11)',
-  'var(--b3-font-color12)',
-  'var(--b3-font-color13)',
-];
+/**
+ * SiYuan stores select-option colours as palette indexes "1".."14"
+ * (kernel `av.FilterColorValue` rejects anything else, silently blanking it).
+ */
+const OPTION_COLOR_COUNT = 14;
 
 export function getOptionColor(index: number): string {
-  return OPTION_COLORS[index % OPTION_COLORS.length];
+  return String((index % OPTION_COLOR_COUNT) + 1);
 }
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────

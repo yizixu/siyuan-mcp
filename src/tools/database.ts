@@ -6,26 +6,15 @@
  * `{workspace}/data/storage/av/{avID}.json` and referenced by "AV blocks"
  * embedded in documents.
  *
- * Official endpoints (all POST):
- *   /api/av/renderAttributeView
- *   /api/av/getAttributeView
- *   /api/av/appendAttributeViewDetachedBlocksWithValues
- *   /api/av/removeAttributeViewBlock
- *   /api/av/updateAttributeViewCell
- *   /api/av/addAttributeViewColumn
- *   /api/av/removeAttributeViewColumn
- *   /api/av/updateAttributeViewColumn
- *   /api/av/getAttributeViewKeyOptions
- *   /api/av/addAttributeViewView
- *   /api/av/removeAttributeViewView
- *   /api/av/updateAttributeViewView
- *   /api/av/setAttributeViewViewQuery
- *   /api/av/addAttributeViewBlocks
- *   /api/file/putFile  (for create_database)
+ * That JSON carries a `spec` version the kernel refuses to read when it is
+ * newer than its own, so this server never writes it directly: databases are
+ * created and mutated through the kernel (`/api/av/*` reads and
+ * `/api/transactions` writes), which stamps the spec of whatever SiYuan is
+ * running.
  */
 
 import { getClient } from '../client';
-import { ok, err, generateId, getTimestamp, getOptionColor } from '../utils';
+import { ok, err, getOptionColor } from '../utils';
 import type { ToolModule, AVFieldType, AVViewType, AVKeyOption, AVKey, AVCellValue } from '../types';
 
 // --- Value helpers ---
@@ -104,92 +93,6 @@ function buildCellValue(key: AVKey, value: unknown): Record<string, unknown> {
     default:
       return { ...base, ...(typeof value === 'object' && value !== null ? value : {}) };
   }
-}
-
-// --- AV JSON builder (for create_database) ---
-
-function buildAVJson(
-  avID: string,
-  name: string,
-  fields: Array<{ name: string; type: string; options?: string[] }>,
-  primaryFieldName = 'Name'
-): object {
-  const blockKeyID = generateId();
-  const viewID = generateId();
-  const tableID = generateId();
-
-  // Full key object as expected by SiYuan >= 3.x (spec 4).
-  const makeKey = (id: string, keyName: string, type: string, options?: AVKeyOption[]) => ({
-    id,
-    name: keyName,
-    type,
-    icon: '',
-    desc: '',
-    ...(options ? { options } : {}),
-    numberFormat: '',
-    template: '',
-  });
-
-  const keyIDs: string[] = [blockKeyID];
-  const keyValues: object[] = [
-    { key: makeKey(blockKeyID, primaryFieldName, 'block'), values: [] },
-  ];
-  const columns: object[] = [
-    { id: blockKeyID, wrap: false, hidden: false, pin: false, width: '' },
-  ];
-
-  fields.forEach((field) => {
-    const keyID = generateId();
-    let options: AVKeyOption[] | undefined;
-    if (field.type === 'select' || field.type === 'mSelect') {
-      // SiYuan stores option colors as palette-index strings ("1".."14").
-      options = (field.options || []).map((optName, i) => ({
-        name: optName,
-        color: String((i % 14) + 1),
-        desc: '',
-      })) as AVKeyOption[];
-    }
-
-    keyIDs.push(keyID);
-    keyValues.push({ key: makeKey(keyID, field.name, field.type, options), values: [] });
-    columns.push({ id: keyID, wrap: false, hidden: false, pin: false, width: '' });
-  });
-
-  return {
-    spec: 4,
-    id: avID,
-    name,
-    keyValues,
-    keyIDs,
-    viewID,
-    views: [
-      {
-        id: viewID,
-        icon: '',
-        name: 'Default',
-        hideAttrViewName: false,
-        desc: '',
-        pageSize: 50,
-        type: 'table',
-        table: {
-          spec: 0,
-          id: tableID,
-          showIcon: true,
-          wrapField: false,
-          columns,
-          rowIds: [],
-        },
-        itemIds: [],
-        group: { field: '', method: 0, order: 0, hideEmpty: false },
-        groupCreated: 0,
-        groups: null,
-        groupItemIds: null,
-        groupFolded: false,
-        groupHidden: 0,
-        groupSort: 0,
-      },
-    ],
-  };
 }
 
 // --- Tool module ---
@@ -590,7 +493,8 @@ const mod: ToolModule = {
       name: 'set_select_options',
       description:
         'Define or replace the options for a select or multi-select field. ' +
-        'Each option has a name and optional color (CSS variable like "var(--b3-font-color3)").',
+        'Options missing from the list are removed. ' +
+        'Each option has a name and an optional palette colour "1".."14".',
       inputSchema: {
         type: 'object',
         properties: {
@@ -611,7 +515,7 @@ const mod: ToolModule = {
                 name: { type: 'string' },
                 color: {
                   type: 'string',
-                  description: 'CSS color (e.g. "var(--b3-font-color3)")',
+                  description: 'Palette index "1".."14" (auto-assigned when omitted)',
                 },
               },
               required: ['name'],
@@ -697,28 +601,55 @@ const mod: ToolModule = {
           primaryFieldName?: string;
         };
 
-        const avID = generateId();
-        const avJson = buildAVJson(avID, dbName, fields, primaryFieldName);
+        // The kernel builds the AV file itself, stamped with whatever spec the
+        // running SiYuan uses. Never hand-write that JSON: a spec this server
+        // guessed is exactly what makes databases unreadable after an upgrade.
+        let hostDocId = parentDocId;
+        if (!hostDocId) {
+          return err('parentDocId is required — a database must live inside a document');
+        }
+        const { avID, blockID, viewID } = await client.createAV(hostDocId);
+        await client.setAVName(avID, dbName);
 
-        await client.putFile(
-          `/data/storage/av/${avID}.json`,
-          JSON.stringify(avJson, null, 2)
-        );
-
-        await client.flushTransaction();
-
-        let blockId: string | undefined;
-        if (parentDocId) {
-          blockId = generateId();
-          const ts = getTimestamp();
-          const dom =
-            `<div data-node-id="${blockId}" data-type="NodeAttributeView" ` +
-            `data-av-id="${avID}" data-av-type="custom" class="av" updated="${ts}"></div>`;
-          await client.appendBlock('dom', dom, parentDocId);
+        // A fresh AV ships with a primary "block" key plus one sample field.
+        // Rename the former, drop the latter, then add what was asked for.
+        const created = await client.getAV(avID);
+        const primaryKey = created.keyValues.find((kv) => kv.key.type === 'block')?.key;
+        if (primaryKey && primaryFieldName) {
+          await client.updateAVColumn(avID, primaryKey.id, {
+            keyName: primaryFieldName,
+            keyType: 'block',
+          });
+        }
+        for (const kv of created.keyValues) {
+          if (kv.key.type !== 'block') await client.removeAVColumn(avID, kv.key.id);
         }
 
-        const viewId = (avJson as { views: Array<{ id: string }> }).views[0].id;
-        return ok({ avID, viewId, name: dbName, embeddedBlockId: blockId ?? null });
+        const addedFields: Array<{ name: string; type: string; keyId: string }> = [];
+        for (const field of fields) {
+          const keyId = await client.addAVColumn(avID, field.type, field.name);
+          if ((field.type === 'select' || field.type === 'mSelect') && field.options?.length) {
+            await client.setAVKeyOptions(
+              avID,
+              keyId,
+              field.options.map((optName, i) => ({
+                name: optName,
+                color: getOptionColor(i),
+                desc: '',
+              })) as AVKeyOption[]
+            );
+          }
+          addedFields.push({ name: field.name, type: field.type, keyId });
+        }
+
+        return ok({
+          avID,
+          viewId: viewID,
+          name: dbName,
+          embeddedBlockId: blockID,
+          primaryFieldId: primaryKey?.id ?? null,
+          fields: addedFields,
+        });
       }
 
       // -- find_db_rows --
@@ -989,8 +920,13 @@ const mod: ToolModule = {
           viewName?: string;
           viewType?: AVViewType;
         };
-        await client.addAVView(avId, viewType, viewName);
-        return ok({ success: true, avId, viewName, viewType });
+        const block = await client.findAVBlock(avId);
+        if (!block) return err(`Database ${avId} is not embedded in any block`);
+        const viewId = await client.addAVView(avId, block.blockID, {
+          layout: viewType,
+          name: viewName,
+        });
+        return ok({ success: true, avId, viewId, viewName, viewType });
       }
 
       // -- update_view --
@@ -1003,16 +939,11 @@ const mod: ToolModule = {
           filters?: unknown[];
         };
 
-        if (viewName) {
-          await client.updateAVView(avId, viewId, { name: viewName });
-        }
-
-        if (sorts !== undefined || filters !== undefined) {
-          await client.setAVViewQuery(avId, viewId, {
-            ...(sorts !== undefined ? { sorts } : {}),
-            ...(filters !== undefined ? { filters } : {}),
-          });
-        }
+        await client.updateAVView(avId, viewId, {
+          ...(viewName ? { name: viewName } : {}),
+          ...(sorts !== undefined ? { sorts } : {}),
+          ...(filters !== undefined ? { filters } : {}),
+        });
 
         return ok({ success: true, avId, viewId });
       }
@@ -1027,8 +958,8 @@ const mod: ToolModule = {
       // -- list_select_options --
       if (name === 'list_select_options') {
         const { avId, keyId } = args as { avId: string; keyId: string };
-        const result = await client.getAVKeyOptions(avId, keyId);
-        return ok({ avId, keyId, options: result.options ?? [] });
+        const options = await client.getAVKeyOptions(avId, keyId);
+        return ok({ avId, keyId, options });
       }
 
       // -- set_select_options --

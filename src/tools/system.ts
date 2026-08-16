@@ -2,6 +2,9 @@ import { getClient } from '../client';
 import { ok, err, pathDepth } from '../utils';
 import type { ToolModule } from '../types';
 
+/** The avID an AV block embeds, as stored in its DOM. */
+const AV_ID_RE = /data-av-id="([^"]+)"/;
+
 const mod: ToolModule = {
   tools: [
     {
@@ -210,21 +213,20 @@ const mod: ToolModule = {
           }
         }
 
-        // 3. All AV databases
+        // 3. All AV databases. The avID lives in the AV block's DOM
+        // (`data-av-id`); SiYuan indexes no `av-id` attribute for it.
         let databases: Array<{ blockId: string; avId: string; docId?: string }> = [];
         try {
           const avBlocks = await client.sql(
-            `SELECT b.id, b.root_id, a.value FROM blocks b ` +
-              `LEFT JOIN attributes a ON b.id = a.block_id AND a.name = 'av-id' ` +
-              `WHERE b.type = 'av' LIMIT 500`
+            `SELECT id, root_id, markdown FROM blocks WHERE type = 'av' LIMIT 500`
           );
           databases = avBlocks
-            .filter((r) => r.value)
             .map((r) => ({
               blockId: String(r.id),
-              avId: String(r.value),
+              avId: AV_ID_RE.exec(String(r.markdown ?? ''))?.[1] ?? '',
               docId: r.root_id ? String(r.root_id) : undefined,
-            }));
+            }))
+            .filter((d) => d.avId);
         } catch {
           // AV query might fail in older SiYuan versions
         }
